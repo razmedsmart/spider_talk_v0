@@ -1,0 +1,1 @@
+daemon --name=spider --stop
