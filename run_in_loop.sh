@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Replace 'your_program' with the actual program you want to run.
-PROGRAM="./spider.sh"
+PROGRAM="python3 ./spider_conversation.py"
 
 # Function to handle SIGINT (Ctrl+C)
 cleanup() {
@@ -20,6 +20,6 @@ fi
 
 # Run the program in an infinite loop
 while true; do
-    ./$PROGRAM
+    $PROGRAM
     echo "Program completed. Restarting..."
 done

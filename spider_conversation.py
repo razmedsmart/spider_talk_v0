@@ -15,6 +15,8 @@ import termios
 from pathlib import Path
 import random
 import subprocess
+from playsound import playsound
+
 DEBUG=False
 home_path = os.path.expanduser('~')
 response_json_file_name = "response.json"
@@ -41,6 +43,7 @@ def get_char():
     return ch
 
 def empty_queue(q):
+    return []
     result = []
     try:
         while True:
@@ -51,8 +54,16 @@ def empty_queue(q):
     return result
 
 
+def disable_microphone():
+    os.system('pactl set-source-mute @DEFAULT_SOURCE@ 1')
+
+def enable_microphone():
+    os.system('pactl set-source-mute @DEFAULT_SOURCE@ 0')
+
+
 def play_audio(key_word, q, ext):
     print(f"{key_word} {q} {ext}")
+    disable_microphone()
     try:
         #print(home_path)
         mp3_folder = Path(home_path)/'Music'/'spider_mp3'
@@ -73,10 +84,11 @@ def play_audio(key_word, q, ext):
         print(f"playing file:{file}")
         if file is not None:
             try:
-                pygame.mixer.music.load(Path(file))
-                pygame.mixer.music.play()
-                while pygame.mixer.music.get_busy():
-                    time.sleep(0.1)  # Adjust the sleep duration as needed
+                playsound(Path(file), block=True)
+                #pygame.mixer.music.load(Path(file))
+                #pygame.mixer.music.play()
+                #while pygame.mixer.music.get_busy():
+                #    time.sleep(0.1)  # Adjust the sleep duration as needed
             except Exception as e:
                 print(f"Missed playing {file} {e}")
         else:
@@ -94,6 +106,8 @@ def play_audio(key_word, q, ext):
             empty_queue(q)
     except Exception as e:
         print(f"play audio failed key_word={key_word} exception={e}")
+    finally:
+        enable_microphone()
 
 
 
@@ -117,7 +131,7 @@ def running_loop( result_queue, config, requests, up_counter, stop_counter, last
         print(f"{e}")
         print('exit running loop')
         #//check_and_kill_speech_process()
-        os.abort()
+        #os.abort()
     return up_counter, stop_counter, last_up_time, last_stop_time
 
 def get_random_file(directory_name):
@@ -226,7 +240,7 @@ def wait_response_2_state(result_queue, state):
                 append_strings_to_file(Path(home_path)/"spider_talk_v0"/"good_answers.txt", text_list)
                 #print('exit')
                 #check_and_kill_speech_process()
-                os.abort()
+                #os.abort()
                 print("goto standby")
                 return STANDBY_STATE
             else:
@@ -263,7 +277,7 @@ def append_strings_to_file(filename, strings):
 
 def worker(result_queue):
     global sentence_event
-
+    #playsound('/home/raz/Music/spider_mp3/happy/happy_song_short.wav',block=True)
     state = STANDBY_STATE
     """Function running in the worker thread."""
     woman = '-woman'
@@ -368,7 +382,7 @@ def main():
         #,input_device_index=4
     )
 
-    audio_generator = (audio_stream.read(1024) for _ in range(0, int(16000 / 1024 * 60 * 5)))  # 5 minutes duration
+    audio_generator = (audio_stream.read(1024) for _ in range(0, int(16000 / 1024 * 60 * 60)))  # 5 minutes duration
 
 
     requests = (speech.StreamingRecognizeRequest(audio_content=content) for content in audio_generator)
@@ -389,7 +403,11 @@ def main():
             )
             running_loop(result_queue, config, requests,  up_counter, stop_counter, last_up_time, last_stop_time)
         except Exception as e:
+            config = None
             print(e)
+        finally:
+            config = None
+        config = None
     print('exit from main')
     #check_and_kill_speech_process()
     print('abort')
