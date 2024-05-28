@@ -15,7 +15,7 @@ import termios
 from pathlib import Path
 import random
 import subprocess
-
+DEBUG=False
 home_path = os.path.expanduser('~')
 response_json_file_name = "response.json"
 WAIT_GENDER_STATE = 5
@@ -52,15 +52,25 @@ def empty_queue(q):
 
 
 def play_audio(key_word, q, ext):
+    print(f"{key_word} {q} {ext}")
     try:
-        print(home_path)
+        #print(home_path)
         mp3_folder = Path(home_path)/'Music'/'spider_mp3'
         wav_folder = Path(home_path)/'Music'/'spider_wav'
         pygame.mixer.init()
-        if ext == 'wav' :
-            file = wav_folder/key_word/get_random_file(wav_folder / key_word)
-        else:
-            file = mp3_folder/key_word/get_random_file(mp3_folder / key_word)
+        file = None
+        try:
+            if ext == 'wav':
+                if not (wav_folder/key_word).exists():
+                    print(f"Folder {(wav_folder/key_word)} does not exist")
+                file = wav_folder/key_word/get_random_file(wav_folder/key_word)
+            else:
+                if not (mp3_folder/key_word).exists():
+                    print(f"Folder {mp3_folder/key_word} does not exist")
+                file = mp3_folder/key_word/get_random_file(mp3_folder/key_word)
+        except Exception as e:
+            print(f"{wav_folder} {key_word} {get_random_file(wav_folder / key_word)} {e}")
+        print(f"playing file:{file}")
         if file is not None:
             try:
                 pygame.mixer.music.load(Path(file))
@@ -68,17 +78,22 @@ def play_audio(key_word, q, ext):
                 while pygame.mixer.music.get_busy():
                     time.sleep(0.1)  # Adjust the sleep duration as needed
             except Exception as e:
-                print(f"{e}")
+                print(f"Missed playing {file} {e}")
         else:
             print(f'Not playing_file {file}')
-        pygame.mixer.music.load(wav_folder/'quiet'/'quiet.wav')
-        pygame.mixer.music.play()
+            print("3")
+
+        try:
+            pygame.mixer.music.load(wav_folder/'quiet'/'quiet.wav')
+            pygame.mixer.music.play()
+        except Exception as e:
+            print(f"play files  key_word={key_word} exception={e}")
         #while pygame.mixer.music.get_busy():
         #    time.sleep(0.1)  # Adjust the sleep duration as needed
         if q is not None:
             empty_queue(q)
     except Exception as e:
-        print(f"{e}")
+        print(f"play audio failed key_word={key_word} exception={e}")
 
 
 
@@ -88,17 +103,21 @@ os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = "speect-to-text-410506-647b0e63c4
 client = speech.SpeechClient()
 
 def running_loop( result_queue, config, requests, up_counter, stop_counter, last_up_time, last_stop_time):
-
-    responses = client.streaming_recognize(config=config, requests=requests)
-    prev_result = ""
-    for response in responses:
-        for result in response.results:
-            current_time = time.time()
-            #print(f"running_loop: {result.alternatives[0].transcript.lower()}")
-            if prev_result != result.alternatives[0].transcript.lower():
-                result_queue.put(result.alternatives[0].transcript.lower())
-                prev_result = result.alternatives[0].transcript.lower()
-
+    try:
+        responses = client.streaming_recognize(config=config, requests=requests)
+        prev_result = ""
+        for response in responses:
+            for result in response.results:
+                current_time = time.time()
+                #print(f"running_loop: {result.alternatives[0].transcript.lower()}")
+                if prev_result != result.alternatives[0].transcript.lower():
+                    result_queue.put(result.alternatives[0].transcript.lower())
+                    prev_result = result.alternatives[0].transcript.lower()
+    except Exception as e:
+        print(f"{e}")
+        print('exit running loop')
+        #//check_and_kill_speech_process()
+        os.abort()
     return up_counter, stop_counter, last_up_time, last_stop_time
 
 def get_random_file(directory_name):
@@ -150,6 +169,7 @@ def play_wav_for_a_key(key_word,result_queue):
 def wait_for_shalom(result_queue, state):
     loader = JsonResponseLoader(response_json_file_name)
     sleep(2)
+    print("wait_for_shalom")
     while True:
         try:
             text = str(result_queue.get())
@@ -167,6 +187,7 @@ def wait_for_shalom(result_queue, state):
 
 
 def wait_response_1_state(result_queue, state):
+    print("XXXX wait_response_1_state")
     try:
         sleep(0.2)
         empty_queue(result_queue)
@@ -175,9 +196,11 @@ def wait_response_1_state(result_queue, state):
         empty_queue(result_queue)
         text_list = text.split(' ')  # Split by spaces
         print(f"wait_response_1_state wait for any response: {text_list}")
+        for t in text_list:
+            print(t[::-1])
         sleep(2)
         play_wav_for_a_key('ask_mood',result_queue)
-        sleep(1)
+        sleep(0.5)
     except Exception as e:
         print(f"{e}")
     return WAIT_RESPONSE_2_STATE
@@ -186,6 +209,7 @@ def wait_response_1_state(result_queue, state):
 
 
 def wait_response_2_state(result_queue, state):
+    print("wait_response_2_state")
     loader = JsonResponseLoader(response_json_file_name)
     retry = 0
     while True:
@@ -199,8 +223,14 @@ def wait_response_2_state(result_queue, state):
             text_list = text_list + text2 + text0
             print(f"WAIT_RESPONSE_2_STATE got response : {text_list}")
             if play_wav_mp3_for_a_text(text_list, result_queue):
+                append_strings_to_file(Path(home_path)/"spider_talk_v0"/"good_answers.txt", text_list)
+                #print('exit')
+                #check_and_kill_speech_process()
+                os.abort()
+                print("goto standby")
                 return STANDBY_STATE
             else:
+                append_strings_to_file(Path(home_path)/"spider_talk_v0"/"missed_answers.txt", text_list)
                 retry += 1
                 if retry < 3:
                     play_wav_for_a_key('not_understand', result_queue)
@@ -215,6 +245,20 @@ def wait_response_2_state(result_queue, state):
     print(f"WAIT_RESPONSE_2_STATE => STANDBY_STATE ")
     return STANDBY_STATE
 
+def append_strings_to_file(filename, strings):
+    """
+    Appends each string from a list of strings to a file. If the file does not exist, it will be created.
+    Each string is written on a new line.
+
+    :param filename: The name of the file to which the strings will be appended.
+    :param strings: A list of strings to append to the file.
+    """
+    with open(filename, 'a') as file:
+        for text in strings:
+            reversed_text = text[::-1]  # Reverse the string
+            file.write(reversed_text + "\n")  # Add a newline character to keep entries on separate lines
+
+# Example usage
 
 
 def worker(result_queue):
@@ -233,6 +277,7 @@ def worker(result_queue):
             elif state == WAIT_RESPONSE_2_STATE:
                 state = wait_response_2_state(result_queue, state)
             sentence_event.set()
+            print(f"state loop {state}")
         except Exception as e:
             print(f"{e}")
 
@@ -261,10 +306,30 @@ def monitor_thread():
                 print("No input received for 30 seconds. Exiting...")
                 os.system("touch /tmp/a.txt")
                 stop_event.set()
-                os.abort()
-                break
+                print('abort')
+                print('exit')
+                start_time = time.time()
+                #check_and_kill_speech_process()
+                #//os.abort()
+                #break
         time.sleep(1)
 
+
+def check_and_kill_speech_process():
+    # Get the list of all running processes
+    print('check_and_kill_speech_process')
+    return
+    process_list = subprocess.check_output(["ps", "aux"]).decode("utf-8").split("\n")
+
+    # Check if any process starts with "ffmpeg -f x11grab"
+    for process in process_list:
+        if process.find("spider_conversation") > 0:
+            # Extract the process ID
+            process_id = process.split()[1]
+            # Kill the process
+            os.system(f"kill {process_id}")
+            print(f"Process with ID {process_id}  was killed.")
+            return
 
 def main():
 
@@ -276,8 +341,8 @@ def main():
     worker_thread = threading.Thread(target=worker, args=(result_queue,))
     worker_thread.start()
     print('start monitor')
-    xmonitor_thread = threading.Thread(target=monitor_thread)
-    xmonitor_thread.start()
+    #xmonitor_thread = threading.Thread(target=monitor_thread)
+    #xmonitor_thread.start()
     # xmonitor_thread.join()
     # worker_thread.join()
     print("Available audio input devices:")
@@ -307,23 +372,28 @@ def main():
 
 
     requests = (speech.StreamingRecognizeRequest(audio_content=content) for content in audio_generator)
-
-    #phone_call, command_and_search
-    config = speech.StreamingRecognitionConfig(
-        config=speech.RecognitionConfig(
-            encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
-            sample_rate_hertz=16000,
-            #language_code='en-US',
-            language_code='he-IL',  # Hebrew language code
-            use_enhanced=True,
-            #model='command_and_search'  # Using the command_and_search model
-            #model='phone_call'  # Optimizing for phone call audio
-        ),
-        interim_results=False
-    )
-    running_loop(result_queue, config, requests,  up_counter, stop_counter, last_up_time, last_stop_time)
-    sleep(3)
-
+    while True:
+        try:
+            #phone_call, command_and_search
+            config = speech.StreamingRecognitionConfig(
+                config=speech.RecognitionConfig(
+                    encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
+                    sample_rate_hertz=16000,
+                    #language_code='en-US',
+                    language_code='he-IL',  # Hebrew language code
+                    use_enhanced=True,
+                    #model='command_and_search'  # Using the command_and_search model
+                    #model='phone_call'  # Optimizing for phone call audio
+                ),
+                interim_results=False
+            )
+            running_loop(result_queue, config, requests,  up_counter, stop_counter, last_up_time, last_stop_time)
+        except Exception as e:
+            print(e)
+    print('exit from main')
+    #check_and_kill_speech_process()
+    print('abort')
+    #os.abort()
 
 
 if __name__ == '__main__':
@@ -337,4 +407,9 @@ if __name__ == '__main__':
     #play_wav_for_a_key('sad', None)
     #play_audio('ask_mood.wav',None)
     #play_audio('happy',None)
-    main()
+    while True:
+        try:
+            main()
+        except Exception as e:
+            print(e)
+            pass
